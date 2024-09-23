@@ -17,21 +17,23 @@ if (process.env.DB_URL) {
     console.log(`Connected to the employee_db database.`)
   );
 }
-pool.connect();
+ pool.connect();
 
 // Create an employee
 async function createEmployee() {
-  const roleData = await getEmployeeRoles();
+  const roleData = await getRoles();
   let roles = [];
-  for(role of roleData){
-    roles.push(roleData.title);
+  for(const role of roleData){
+    roles.push(role.title);
   }
 
-  const managerData = await readEmployees();
+  const managerData = await getEmployees();
   let managers = []
-  for(manager of managerData){
-    managers.push(`${managerData.first_name} ${managerData.last_name}`);
+  for(const manager of managerData){
+    managers.push(`${manager.first_name} ${manager.last_name}`);
   }
+
+  managers.push("Employee has no manager");
   const prompt = [
     {
       type: "input",
@@ -54,63 +56,47 @@ async function createEmployee() {
       type: "list",
       name: "manager",
       message: "Who is their manager?",
-      choices: managers
+      choices: managers,
     }
   ];
   const answer = await inquirer.prompt(prompt);
   const roleId = roles.indexOf(answer.role) +1;
-  const managerIndex = managers.indexOf(answer.manager);
-  const managerId = managerData[managerIndex].id;
 
-  const sql = `INSERT INTO employees (first_name, last_name, role_id, manager_id)
-    VALUES ($1, $2. $3, $4)`;
+  let managerId;
+  if(answer.manager === "Employee has no manager"){
+    managerId = null;
+  }
+  else{
+    const managerIndex = managers.indexOf(answer.manager);
+     managerId = managerData[managerIndex].id;
+  }
+  
+  const sql = `INSERT INTO employee (first_name, last_name, role_id, manager_id)
+    VALUES ($1, $2, $3, $4)`;
   const params = [answer.first_name, answer.last_name, roleId, managerId];
 
-  pool.query(sql, params, (err, result) => {
+  await pool.query(sql, params, (err, result) => {
     if (err) {
-      res.status(400).json({ error: err.message });
+      console.log(err);
       return;
     }
-    console.table(result.rows);
+    console.log(`Added ${answer.first_name} ${answer.last_name} to the database`);
+    
+
   });
 }
 
 // Read all employees
-function readEmployees() {
-  const sql = `SELECT * FROM employee`;
+async function getEmployees(log) {
+  const sql = `SELECT * FROM employee`; 
 
-  pool.query(sql, (err, result) => {
-    if (err) {
-      console.error("Error executing query", err.stack);
-    } else {
-      console.log(result.rows);
-      const idLength = 2;
-      let firstNameLength = 10;
-      let lastNameLength = 9;
-      let titleLength = 5;
-      let departmentLength = 10;
-      let salaryLength = 6;
-      let managerLength = 7;
-
-      for (row of result.rows) {
-        if (row.first_name.length > firstNameLength) {
-          firstNameLength = row.first_name.length;
-        }
-        if (row.last_name.length > lastNameLength) {
-          lastNameLength = row.last_name.length;
-        }
-        if (row.title.length > titleLength) {
-          titleLength = row.title.length;
-        }
-        const salaryString = row.salary + "";
-        if (salaryString.length > salaryLength) {
-          salaryLength = salaryString.length;
-        }
-      }
-
-      return result.rows;
-    }
-  });
+  try {
+    const res = await pool.query(sql);
+    log ? console.table(res.rows) : null; 
+    return res.rows; 
+  } catch (err) {
+    console.error("Error executing query", err.stack); 
+  }
 }
 
 // Delete an employee
@@ -126,7 +112,7 @@ async function deleteEmployee() {
   const sql = `DELETE FROM employee WHERE id = $1`;
   const params = [answer.employeeId];
 
-  pool.query(sql, params, (err, res) => {
+ await pool.query(sql, params, (err, res) => {
     if (err) {
       console.error("Error executing query", err.stack);
       return;
@@ -135,45 +121,158 @@ async function deleteEmployee() {
   });
 }
 
-function getEmployeeRoles() {
-  const sql = `SELECT id, title, salary FROM role`;
-  pool.query(sql, (err, res) => {
-    if (err) {
-      console.error("Error executing query", err.stack);
-      return;
-    }
-    console.table(res.rows);
-    return res.rows;
-  });
-}
+async function createRole() {
+  
 
-function createRole({ body }, res) {
+  const departmentData = await getDepartments();
+  let departments = [];
+
+  for(const d of departmentData){
+    departments.push(d.department_name);
+  }
+  const questions =[
+    {
+      type: "input",
+      name: "title",
+      message: "What is the position's title?"
+    },
+    {
+      type: "number",
+      name: "salary",
+      message: "What is the position's salary?"
+    },
+    {
+      type: "list",
+      name: "department",
+      message: "Which department will it be located in?",
+      choices: departments
+    }
+  ];
+
+  const answers = await inquirer.prompt(questions);
+
   const sql = `INSERT INTO role (title, salary, department_id)
-    VALUES ($1, $2, )`;
-  const params = [body.first_name, body.last_name];
+    VALUES ($1, $2, $3)`;
 
-  pool.query(sql, params, (err, result) => {
-    if (err) {
-      res.status(400).json({ error: err.message });
+  const params = [answers.title, answers.salary, answers.department];
+
+  await pool.query(sql, params);
+  console.log(`${params[0]} added to Database`);
+  return;
+  
+ 
+}
+
+async function getRoles(log) {
+  const sql = `SELECT * FROM role`;
+  const res = await pool.query(sql);
+  log ? console.table(res.rows) : null;
+  return res.rows;
+}
+
+async function updateEmployee() {
+  const employeeData = await getEmployees();
+  let employees= [];
+  for(employee of employeeData){
+    employees.push(`${employee.first_name} ${employee.last_name}`);
+  }
+
+  const roleData = await getRoles();
+  let roles= [];
+  for(role of roleData){
+    roles.push(role.title);
+  }
+  
+  const questions = [
+    {
+      type: "list",
+      name: "employee",
+      message: "Which Employee would you like to update?",
+      choices: employees
+    },
+    {
+      type: "list",
+      name: "role",
+      message: "Which role would you like to update them to?",
+      choice: roles
+    },  
+
+  ];
+
+  const answers = await inquirer.prompt(questions);
+  const roleId = roleData[roles.indexOf(answers.role)].id;
+  const employeeId = employeeData[employees.indexOf(answers.employee)].id;
+
+  const sql = `UPDATE employee SET role_id = $1 WHERE id = $2`
+  const params = [roleId, employeeId];
+
+  await pool.query(sql, params, (err, result)=>{
+    if(err){
+      console.error("Error executing query", err.stack);
       return;
     }
-    console.table(result.rows);
+
+    console.log(`Updated ${answer.employee}'s role to ${answer.role}`);
     return result.rows;
+
   });
+
+}
+async function getDepartments(log) {
+  
+    const sql = `SELECT * FROM department`; 
+  
+    try {
+      const res = await pool.query(sql);
+      log ? console.table(res.rows) : null;
+      return res.rows; 
+    } catch (err) {
+      console.error("Error executing query", err.stack); 
+    }
 }
 
-function getDepartmentRoles() {
-  const sql = `SELECT department.department_name AS department, role.title FROM role LEFT JOIN department ON role.department_id = department.id ORDER BY department_name;`;
-  pool.query(sql, (err, result) => {
-    if (err) {
-      console.log(err)
+async function createDepartment() {
+  const questions =[
+    {
+      type: "input",
+      name: "name",
+      message: "What is the department's name?"
+    },
+  ];
+
+  const answers = await inquirer.prompt(questions);
+
+  const sql = `INSERT INTO department (department_name)
+  VALUES ($1)`;
+
+  const params = [answers.name];
+  await pool.query(sql, params, (err, result) =>{
+    if(err){
+      console.log(err);
       return;
     }
-    console.table(result.rows);
+
+    return result.rows;
+
   });
+
 }
 
-async function createDepartment() {}
+async function checkLoop(){
+  const againQuestion = [{
+    type: "confirm",
+    name: "confirm",
+    message: "Would you like to do anything else?",
+  }];
+
+  const again = await inquirer.prompt(againQuestion);
+
+  if(!again.confirm){
+    
+    return false;
+  }
+  return true;
+}
 
 const operationPrompt = [
   {
@@ -188,39 +287,77 @@ const operationPrompt = [
       "View All Departments",
       "Add Department",
       "Remove Employee",
+      "Update Employee Role",
     ],
   },
 ];
 
-const run = async () => {
-  const prompt = await inquirer.prompt(operationPrompt);
-  const answer = prompt.operation;
+async function run() {
+  
+  let cont = true;
 
-  switch (answer) {
-    case "View All Employees":
-      readEmployees();
-      break;
-    case "Add Employee":
-      createEmployee();
-      break;
-    case "View All Roles":
-      getEmployeeRoles();
-      break;
-    case "Add Role":
-      createRole();
-      break;
-    case "View All Departments":
-      getDepartmentRoles();
-      break;
-    case "Add Department":
-      createDepartment();
-      break;
-    case "Remove Employee":
-      deleteEmployee();
-      break;
+   while(cont)
+    { 
+      const prompt = await inquirer.prompt(operationPrompt);
+      const answer = prompt.operation;
+
+      switch (answer) {
+      case "View All Employees":
+        await getEmployees(true)
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+        break;
+      case "Add Employee":
+        await createEmployee()
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+        break;
+      case "View All Roles":
+        await getRoles(true)
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+        break;
+      case "Add Role":
+        await createRole()
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+        break;
+      case "View All Departments":
+        await getDepartments(true)
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+        break;
+      case "Add Department":
+        await createDepartment()
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+        break;
+      case "Remove Employee":
+        await deleteEmployee()
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+
+        break;
+      case "Update Employee Role":
+        await updateEmployee()
+        .then(checkLoop, (res)=>{
+          cont = res;
+        });
+        break;
+    }
+
+
+   
   }
 
-  return;
+
 };
 
 run();
