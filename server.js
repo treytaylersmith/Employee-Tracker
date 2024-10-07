@@ -91,7 +91,7 @@ async function getEmployees(log) {
   try {
     const res = await pool.query(sql);
     const employees = res.rows.sort((a, b) => a.id - b.id);
-    console.log(employees);
+    
     log ? console.table(employees) : null;
     return employees;
   } catch (err) {
